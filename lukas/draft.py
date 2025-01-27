@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import scipy.integrate as integrate
 from scipy.integrate import solve_ivp
 import numpy.lib.scimath as sm
+from scipy.optimize import fminbound
+from scipy.integrate import quad
 import threading
 import time
 
@@ -63,6 +65,84 @@ class BH:
         V = self.f(r) * (sigma - (L ** 2) / self.h(r))
         return V
 
+
+    # Method to find both the minimum and maximum of the effective potential
+    def min_max_V_eff(self, r_span, sigma=0, L=1):
+        """
+        Find the minimum and maximum values of the effective potential V_eff
+        within a given radial span.
+
+        Parameters:
+        - r_span: A tuple or list specifying the range [r_min, r_max] where we want to search for the extremum.
+        - sigma: Optional parameter for the effective potential (default is 0).
+        - L: Orbital angular momentum (default is 1).
+
+        Returns:
+        - min: The radial position r_min where the effective potential is minimized.
+        - max: The radial position r_max where the effective potential is maximized.
+        """
+        
+        # Finding the minimum of the effective potential within the given range.
+        # fminbound minimizes the function, so we pass the function as a lambda.
+        min_value = fminbound(lambda r: self.V_eff(r, sigma=sigma, L=L), r_span[0], r_span[1])
+        
+        # Finding the maximum by minimizing the negative of the effective potential.
+        # This is because fminbound only finds minima, so we negate the function to find the maximum.
+        max_value = fminbound(lambda r: -self.V_eff(r, sigma=sigma, L=L), r_span[0], r_span[1])
+
+        # Return both the minimum and maximum values
+        return min_value, max_value
+    
+    # Method to compute the derivative of phi with respect to r
+    def dphi_dr(self, r, sigma=0, L=1, E=1):
+        """
+        Calculate the derivative of the angle phi with respect to the radial distance r.
+
+        Parameters:
+        - r: The radial distance at which the derivative is evaluated.
+        - sigma: Optional parameter for the effective potential (default is 0).
+        - L: Orbital angular momentum (default is 1).
+        - E: Energy (default is 1).
+
+        Returns:
+        - The derivative of phi with respect to r at the specified radial distance.
+        """
+        
+        # The derivative is calculated by dividing the angular momentum (L) by h(r),
+        # and then multiplying by the square root of the ratio of f(r) * g(r) and the effective potential,
+        # where the effective potential is modified by the energy (E) and the angular momentum (L).
+        return (L / self.h(r)) * np.sqrt(self.f(r) * self.g(r) / (E**2 + self.V_eff(r, sigma, L)))
+
+    # Method to compute phi(r) by integrating dphi/dr for each r in r_list
+    def phi(self, r_list, r0, sigma=0, L=1, E=1):
+        """
+        Calculate the angle phi for a list of radial distances r_list by integrating the derivative dphi/dr.
+        
+        Parameters:
+        - r_list: A list or array of radial distances where phi is to be evaluated.
+        - r0: The reference radial position (default is 0), where phi(r0) is set to 0.
+        - sigma: Optional parameter for the effective potential (default is 0).
+        - L: Orbital angular momentum (default is 1).
+        - E: Energy (default is 1).
+        
+        Returns:
+        - An array of phi values corresponding to each radial distance in r_list.
+        """
+        
+        # Helper function to integrate dphi/dr for a single r
+        def integrate_phi(r):
+            integrand = lambda r_prime: self.dphi_dr(r_prime, sigma=sigma, L=L, E=E)
+            phi_value, _ = quad(integrand, r0, r)
+            return phi_value
+        
+        # Vectorize the integration function so it can be applied to each element in r_list
+        vectorized_integrate_phi = np.vectorize(integrate_phi)
+        
+        # Compute phi values for each r in r_list
+        phi_values = vectorized_integrate_phi(r_list)
+        
+        return phi_values
+
     # Equations of Motion (Solve Differential-Algebraic Equations)
     def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1, R_s=2):
         """
@@ -90,8 +170,8 @@ class BH:
             """
             
             # Define the differential equations for t, r, and phi
-            dtdtau    = -delta * E / self.f(r)
-            dphidtau  = -delta * L / self.h(r)
+            dtdtau    = delta * E / self.f(r)
+            dphidtau  = delta * L / self.h(r)
             argument  = 1 / self.g(r) * ((E ** 2) / self.f(r) + sigma - (L ** 2) / self.h(r))
 
             # Check if the argument for radial motion is positive or negative
@@ -131,6 +211,8 @@ class BH:
         result_n = Falls_in_BH(sol_n)
 
         return result_p, result_n, Falls_in
+
+
 
     '''
     From here on, the code is not really finished.

@@ -10,15 +10,16 @@ import OGRePy as gr
 import sympy as sp
 
 from OGRePy.abc import t, phi, theta
-
 r = gr.sym("r", nonnegative=True)
+
+# Definition of spherical coordinates
 Spherical = gr.Coordinates(t, r, theta, phi)
 
-# Class definition for the black hole model
-class BH:
-    def __init__(self, f, g, h, param):
+# Class definition for the Metric model
+class MetricSystem:
+    def __init__(self, f, g, h, param, M=1):
         """
-        Initialize the black hole model with given functions and parameters.
+        Initialize the  Metric model with given functions and parameters.
 
         Parameters:
         - f, g, h: Functions describing the system's behavior.
@@ -35,6 +36,9 @@ class BH:
         self.g = self.safe_g(r, param)
         self.h = self.safe_h(r, param)
 
+        self.M = param[0] # Mass of the black hole
+        self.R_s = 2 * param[0]  # Schwarzschild radius
+
     def metric(self):
         """
         Define the black hole metric in spherical coordinates using the functions f, g, and h.
@@ -42,26 +46,30 @@ class BH:
         Returns:
         - return_metric: A Metric object representing the black hole geometry.
         """
+        # Create metric components
         return_metric = gr.Metric(
-            coords = Spherical,
-            components = gr.diag(-self.f, self.g, self.h, sp.sin(theta) ** 2 * self.h),
+            coords=Spherical,
+            components=gr.diag(-self.f, self.g, self.h, sp.sin(theta) ** 2 * self.h),
             symbol="eta",
         )
-        return return_metric 
+        return return_metric
 
-    def get_paramters(self, param):
+    def __call__(self):
+        return self.metric()
+
+    def get_parameters(self, param):
         """
         Return the given parameters.
 
         Parameters:
         - param: Parameters to be returned.
-        
+
         Returns:
         - param: The input parameters.
         """
-        return param 
+        return param
 
-    def set_paramters(self, param):
+    def set_parameters(self, param):
         """
         Set the parameters for the system, updating the function definitions.
 
@@ -71,7 +79,7 @@ class BH:
         self.param = param
         self.f = self.safe_f(r, param)
         self.g = self.safe_g(r, param)
-        self.h = self.safe_h(r, param)        
+        self.h = self.safe_h(r, param)
 
     def V_eff(self, r_val=None, sigma=0, L=1):
         """
@@ -79,9 +87,9 @@ class BH:
 
         Parameters:
         - r_val: Radial coordinate.
-        - sigma: Optional parameter, default is 0, -1 for partical.
+        - sigma: Optional parameter, default is 0, -1 for particle.
         - L: Orbital angular momentum, default is 1.
-        
+
         Returns:
         - V: Effective potential at the given r.
         """
@@ -94,9 +102,9 @@ class BH:
             V_return = V_num(r_val)
         elif r_val is not None:
             V_return = V.subs(r, r_val)
-        else: 
+        else:
             V_return = V
-           
+
         return V_return
 
     def min_max_V_eff(self, sigma=0, L=1):
@@ -118,7 +126,7 @@ class BH:
         dV_dr_1 = sp.diff(V, r)
         dV_dr_2 = sp.diff(dV_dr_1, r)
 
-        # Solve for critical points (extremas)
+        # Solve for critical points (extremes)
         extrem = sp.solve(dV_dr_1, r)
 
         # Initialize lists to store minimum and maximum values
@@ -133,7 +141,7 @@ class BH:
 
         # Return both the minimum and maximum values
         return min, max
-    
+
     def dphi_dr(self, r_val=None, sigma=0, L=1, E=1):
         """
         Calculate the derivative of the angle phi with respect to the radial distance r.
@@ -156,8 +164,8 @@ class BH:
             dphi_dr_return = dphi_dr_num(r_val)
         elif r_val is not None:
             dphi_dr_return = dphi_dr_sym.subs(r, r_val)
-        else: 
-            dphi_dr_return = dphi_dr_sym
+        else:
+            dphi_dr_return = sp.simplify(dphi_dr_sym)
 
         return dphi_dr_return
 
@@ -177,21 +185,28 @@ class BH:
         """
         # Getting the derivative dphi/dr
         d_phi_dr = self.dphi_dr(r_val=None, sigma=sigma, L=L, E=E)
-        
-        # Lambdify the derivative to be used in the solver
-        d_phi_dr_func = sp.lambdify(r, d_phi_dr, "numpy")
 
-        # Define the ODE system for numerical integration
-        def ode_system(r, phi):
-            return d_phi_dr_func(r) 
+        # Perform symbolic integration
+        phi = sp.integrate(d_phi_dr, r)
 
-        # Use scipy's solve_ivp to numerically integrate dphi/dr
-        phi_list = solve_ivp(ode_system, r_span, [phi_0], t_eval=r_val, method='RK45')
-        
-        # Return the solution (angle phi)
-        return phi_list.y[0]  # We want to access the solution at each t_eval point
+        if sp.Integral(d_phi_dr, r) == phi:
+            # Lambdify the derivative to be used in the solver
+            d_phi_dr_func = sp.lambdify(r, d_phi_dr, "numpy")
 
-    def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1, R_s=2):
+            # Define the ODE system for numerical integration
+            def ode_system(r, phi):
+                return d_phi_dr_func(r)
+
+            # Use scipy's solve_ivp to numerically integrate dphi/dr
+            phi_list = solve_ivp(ode_system, r_span, [phi_0], t_eval=r_val, method='RK45')
+            phi_return = phi_list.y[0]
+        else:
+            # Return the symbolic result if no numerical integration is needed
+            phi_return = phi
+
+        return phi_return 
+
+    def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1):
         """
         Solve the system of differential-algebraic equations (DAE) for motion around the black hole.
 
@@ -205,7 +220,7 @@ class BH:
         - L: Orbital angular momentum (default is 1).
         - E: Energy (default is 1).
         - R_s: Schwarzschild radius (default is 2).
-        
+
         Returns:
         - result_p: Solution for the forward direction.
         - result_n: Solution for the reverse direction.
@@ -219,7 +234,7 @@ class BH:
         # Define the system of differential equations for the DAE
         def DAE(tau, y, delta):
             t, r, phi = y
-            
+
             # Differential equations for t, r, and phi
             dtdtau = delta * E / f(r)
             dphidtau = delta * L / h(r)
@@ -245,7 +260,7 @@ class BH:
 
         # Function to check if the solution falls inside the event horizon
         def Falls_in_BH(arr):
-            index = np.where(arr.y[1] < R_s)[0]
+            index = np.where(arr.y[1] < self.R_s)[0]
             if index.size > 0:
                 Falls_in = True
                 result = arr.y[:, :index[0]]  # Return solution up to event horizon
@@ -260,3 +275,23 @@ class BH:
 
         return result_p, result_n, Falls_in
 
+# Class for the Black Hole
+class BH:
+    def __init__(self, M, Metric_sys_list, Metric_Name_list):
+        self.M = M
+        self.R_s = 2 * M  # Schwarzschild radius (R_s)
+
+        # Lists to store MetricSystem instances and their corresponding names
+        self.Metric_sys_list = Metric_sys_list
+        self.Metric_Name_list = Metric_Name_list
+
+        # Add MetricSystem instances dynamically based on the provided names
+        for Metric_sys, Metric_Name in zip(self.Metric_sys_list, self.Metric_Name_list):
+            self.add_Metric_sys(Metric_sys, Metric_Name)
+
+    def add_Metric_sys(self, Metric_sys, Metric_Name):
+        """Dynamically adds a new MetricSystem instance to the BH object."""
+        # Dynamically set the attribute with the given name
+        Metric_sys.set_parameters([self.M, Metric_sys.set_parameters[1:]])
+        setattr(self, Metric_Name, Metric_sys)
+      

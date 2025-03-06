@@ -8,6 +8,7 @@ from scipy.optimize import fminbound
 from scipy.integrate import quad
 import OGRePy as gr
 import sympy as sp
+from scipy.optimize import fsolve
 
 from OGRePy.abc import t, phi, theta
 r = gr.sym("r", nonnegative=True)
@@ -36,8 +37,12 @@ class MetricSystem:
         self.g = self.safe_g(r, param)
         self.h = self.safe_h(r, param)
 
-        self.M = param[0] # Mass of the black hole
-        self.R_s = 2 * param[0]  # Schwarzschild radius
+        #self.M = param[0] # Mass of the black hole
+        self.R_s = 2 * M # Schwarzschild radius
+
+        self.z = 1
+        self.rsafe=0
+        self.drsafe=0
 
     def metric(self):
         """
@@ -107,7 +112,7 @@ class MetricSystem:
 
         return V_return
 
-    def min_max_V_eff(self, sigma=0, L=1):
+    def min_max_V_eff(self, sigma=0, L=1, M=1):
         """
         Find the minimum and maximum values of the effective potential V_eff
         within a given radial span.
@@ -127,20 +132,62 @@ class MetricSystem:
         dV_dr_2 = sp.diff(dV_dr_1, r)
 
         # Solve for critical points (extremes)
-        extrem = sp.solve(dV_dr_1, r)
+        dV_dr_1_simplified = sp.simplify(dV_dr_1)
+        extrem = sp.nsolve(dV_dr_1_simplified, r, 2.3)
 
         # Initialize lists to store minimum and maximum values
         min, max = [], []
-
-        for i in range(len(extrem)):
-            # Check if the second derivative is positive (min) or negative (max)
-            if dV_dr_2.subs(r, extrem[i]) > 0:
-                min.append(float(extrem[i]))
-            elif dV_dr_2.subs(r, extrem[i]) < 0:
-                max.append(float(extrem[i]))
-
+        
+        if isinstance(extrem, (np.ndarray, list, tuple)):
+            for i in range(len(extrem)):
+                # Check if the second derivative is positive (min) or negative (max)
+                if dV_dr_2.subs(r, extrem[i]) > 0:
+                    min.append(float(extrem[i]))
+                elif dV_dr_2.subs(r, extrem[i]) < 0:
+                    max.append(float(extrem[i]))
+        else: 
+            #min.append()
+            max.append(extrem)
         # Return both the minimum and maximum values
         return min, max
+    
+    #debuging
+    def min_max_V_eff_debug(self, sigma=0, L=1, M=1):
+            """
+            Find the minimum and maximum values of the effective potential V_eff
+            within a given radial span.
+
+            Parameters:
+            - sigma: Optional parameter for the effective potential (default is 0).
+            - L: Orbital angular momentum (default is 1).
+
+            Returns:
+            - min: The radial position r_min where the effective potential is minimized.
+            - max: The radial position r_max where the effective potential is maximized.
+            """
+            V = self.V_eff(sigma=sigma, L=L)
+
+            # Calculate the first and second derivatives of the effective potential
+            dV_dr_1 = sp.diff(V, r)
+            dV_dr_2 = sp.diff(dV_dr_1, r)
+
+            dV_dr_1_simplified = sp.simplify(dV_dr_1)
+
+            try:
+                max = sp.nsolve(dV_dr_1_simplified, r, 2*M+0.1)
+            except ValueError as e:
+                max=None
+            
+            try:
+                min= sp.nsolve(dV_dr_1_simplified, r, 2*max)
+            except ValueError as e:
+                min = None
+
+
+            
+
+
+            return min, max
 
     def dphi_dr(self, r_val=None, sigma=0, L=1, E=1):
         """
@@ -206,7 +253,11 @@ class MetricSystem:
 
         return phi_return 
 
-    def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1):
+    def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1, debug=False):
+
+        if abs(E**2) < self.V_eff(r_0, sigma=sigma, L=L): 
+            print('E < V_eff(r_0)')
+            return
         """
         Solve the system of differential-algebraic equations (DAE) for motion around the black hole.
 
@@ -231,30 +282,41 @@ class MetricSystem:
         g = sp.lambdify(r, self.g, "numpy")
         h = sp.lambdify(r, self.h, "numpy")
 
+        #r_test = sp.solve(self.V_eff(sigma=sigma, L=L) - E ** 2, r)
+        Circulare = self.V_eff(L=L, sigma=sigma, r_val=r_0)!= E**2
+
+        self.z = 1
         # Define the system of differential equations for the DAE
         def DAE(tau, y, delta):
+            #if Circulare:
             t, r, phi = y
+            r = max(r, self.R_s+0.1)
 
-            # Differential equations for t, r, and phi
-            dtdtau = delta * E / f(r)
-            dphidtau = delta * L / h(r)
             argument = 1 / g(r) * ((E ** 2) / f(r) + sigma - (L ** 2) / h(r))
 
-            # Radial motion (using sqrt of the argument)
-            if argument >= 0:
-                drdtau = delta * np.sqrt(argument)
-            else:
-                print(f"Warning: E < V_eff at r = {r}")
-                drdtau = delta * np.sqrt(argument.real)
+            if argument < 0: 
+                self.z = -1 * self.z
+
+            drdtau = self.z * delta * np.sqrt(np.abs(argument))   
+            #else:
+            #    drdtau=0
+            #    r= r_0
+
+            dtdtau = delta * E / f(r)
+            dphidtau = delta * L / h(r)
+
+            if debug: print(fr'z: {self.z}, tau {tau}, r: {r} and dr/dtau: {drdtau}, argument: {argument}')
 
             return [dtdtau, drdtau, dphidtau]
+
 
         # Initial conditions for the differential equations
         initial_conditions = [t_0, r_0, phi_0]
 
         # Solve the differential equations for both directions (forward and reverse)
-        sol_p = solve_ivp(DAE, tau_span, initial_conditions, t_eval=tau, args=[1], method='RK45')
-        sol_n = solve_ivp(DAE, tau_span, initial_conditions, t_eval=tau, args=[-1], method='RK45')
+        sol_p = solve_ivp(DAE, tau_span, initial_conditions, t_eval=tau, args=[1], method='DOP853',  max_step=0.05)
+        self.z = 1
+        sol_n = solve_ivp(DAE, tau_span, initial_conditions, t_eval=tau, args=[-1], method='DOP853',  max_step=0.05)
 
         Falls_in = False
 
@@ -268,7 +330,7 @@ class MetricSystem:
                 result = arr.y[:]  # Return full solution
 
             return result
-
+        
         # Get results for both directions
         result_p = Falls_in_BH(sol_p)
         result_n = Falls_in_BH(sol_n)
@@ -292,6 +354,6 @@ class BH:
     def add_Metric_sys(self, Metric_sys, Metric_Name):
         """Dynamically adds a new MetricSystem instance to the BH object."""
         # Dynamically set the attribute with the given name
-        Metric_sys.set_parameters([self.M, Metric_sys.set_parameters[1:]])
+        #Metric_sys.set_parameters([self.M, Metric_sys.set_parameters[1:]])
         setattr(self, Metric_Name, Metric_sys)
       

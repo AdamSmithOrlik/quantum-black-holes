@@ -62,7 +62,7 @@ class BH:
         Returns:
         - V: Effective potential at the given r.
         """
-        V = self.f(r) * (sigma - (L ** 2) / self.h(r))
+        V = - self.f(r) * (sigma - (L ** 2) / self.h(r))
         return V
 
 

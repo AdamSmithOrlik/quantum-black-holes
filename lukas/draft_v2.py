@@ -72,7 +72,7 @@ class MetricSystem:
         Returns:
         - param: The input parameters.
         """
-        return param
+        return self.param
 
     def set_parameters(self, param):
         """
@@ -252,6 +252,57 @@ class MetricSystem:
             phi_return = phi
 
         return phi_return 
+    
+    def Perihelion_shift(self, sigma=-1, L=1, E=1, M=1):
+        eq= E**2-self.V_eff(sigma=sigma, L=L)
+        eq_num = sp.lambdify(r, eq, "numpy")
+
+        eq_int= 1/(self.h/L*sp.sqrt( 1 / self.f *self.g * (E**2 - self.V_eff(sigma=sigma, L=L))))
+        eq_int_num= sp.lambdify(r, eq_int, "numpy")
+
+        pos=float(self.min_max_V_eff_debug(sigma=sigma, L=L,M=M)[0])
+
+        r_critical_1 = fsolve(eq_num, pos-3) # not good yet
+        r_critical_2 = fsolve(eq_num, pos+r_critical_1)
+        #print(r_critical_1,r_critical_2)
+        dPhi=2*abs(integrate.quad(eq_int_num, r_critical_1, r_critical_2)[0]) - 2*np.pi
+
+        return dPhi
+
+
+
+
+    def Light_deflection(self ,r_0 ,n=1):
+        
+        Term = 1/ sp.sqrt( self.h / self.g * (self.h / self.h.subs(r,r_0) * self.f.subs(r,r_0) / self.f -1))
+        Term_num = sp.lambdify(r, Term, "numpy")
+        alpha=2*integrate.quad(Term_num, r_0, np.inf)[0] - n*np.pi
+        return alpha
+    
+    def Theta(self, r_0, D_ol):
+        return np.arcsin(np.sqrt(float(self.h.subs(r,r_0)/self.f.subs(r,r_0)))*1/D_ol)
+    
+    def Beta(self, r_0, D_ol, D_ls, n=1):
+        D_os=D_ol+D_ls
+        Theta = self.Theta(r_0, D_ol)
+        alpha = self.Light_deflection(r_0 ,n)
+        return np.arctan(np.tan(Theta)- D_ls / D_os *(np.tan(Theta)+np.tan(alpha-Theta)))
+
+    def Time_Delay(self ,r_0 ,D_ls ,D_ol, beta):
+        
+        D_os= D_ol + D_ls
+        r_ol = D_ol
+        r_ls = np.sqrt(D_ls ** 2 + D_os ** 2 * np.tan(beta) ** 2)
+
+        Term = 1/ sp.sqrt( self.f / self.g * (1 - self.f / self.f.subs(r,r_0) * self.h.subs(r,r_0) / self.h ))
+
+        
+        Term_num = sp.lambdify(r, Term, "numpy")
+
+
+
+        tau = integrate.quad(Term_num, r_0, r_ls)[0] + integrate.quad(Term_num, r_0, r_ol)[0]- D_ol * 1 / np.cos(beta) ** 2
+        return tau 
 
     def solve_DAE(self, tau, tau_span, r_0, t_0=0, phi_0=0, sigma=0, L=1, E=1, debug=False):
 
@@ -336,6 +387,8 @@ class MetricSystem:
         result_n = Falls_in_BH(sol_n)
 
         return result_p, result_n, Falls_in
+
+
 
 # Class for the Black Hole
 class BH:

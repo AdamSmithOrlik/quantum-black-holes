@@ -208,7 +208,7 @@ def Veff_graph(ax, Metric, param, sigma=-1, L=1, M=1, r_int=[2, 10], bool_legend
     
     # Set the title of the plot and the axis labels
     ax.set_title(fr'$V_{{eff}}(r)$  with $\sigma={sigma}$, $M={M}$ and $L={L}$')
-    ax.set_ylabel('$V_eff$')  # Y-axis label
+    ax.set_ylabel(fr'$V_\text{{eff}}$')  # Y-axis label
     ax.set_xlabel('r [$R_s$]')  # X-axis label
     ax.grid()  # Show the grid on the plot
     
@@ -273,15 +273,45 @@ def Veff_plt(Metric, param=[0, 0, 2], sigma=-1, L=1, rgb_image=None, grad=None, 
     # If rgb_image is provided (i.e., color spectrum is present), create the color spectrum plot
     if rgb_image is not None: 
         # Create the second subplot for the color spectrum (lower half)
-        spec = fig.add_subplot(gs[1, :])  
-        # Call color_spec to display the color spectrum
-        color_spec(spec, rgb_image=rgb_image, y=0.05)
+        if len(param)>1: 
+            spec = fig.add_subplot(gs[1, :])  
+            # Call color_spec to display the color spectrum
+            color_spec(spec, rgb_image=rgb_image, y=0.05)
 
     # Adjust the layout to avoid overlaps
     plt.tight_layout()
     
     # Display the plot
     plt.show()
+
+def Shadow_BH(Metric, param=[0, 0, 2], sigma=-1, L=1, rgb_image=None, grad=None, M=1, r_int=[2, 10], maxmin=True):
+    # If a gradient image (rgb_image) is given, create the color spectrum and adjust the parameters
+    if grad is not None: 
+        # Create the color image and beta list (colors) with a linear gradient from 0 to 1
+        rgb_image, beta_list = Color_img(np.linspace(0, 1, grad))
+        # Adjust the parameters by converting the color values to parameters
+        param = [(float(beta_list[i][2]), 0, 2 * M) for i in range(len(beta_list))]
+
+    # Create a new figure with size 10x8
+    fig = plt.figure(figsize=(10, 8))
+
+    # Add a gridspec to control the layout of the plots (2 rows, 1 column)
+    ax = fig.add_subplot()
+    
+    points_x, points_y=[],[] 
+    for i in range(len(param)):
+        Metric.set_parameters(param[i])
+        # Get the locations of the minima and maxima of V_eff
+        min_store, max_store = Metric.min_max_V_eff_debug(sigma=sigma, L=L)
+        
+        points_x.append(max_store)  
+        points_y.append(param[i][0])  
+
+    ax.set_ylabel('r')
+    ax.set_xlabel('$Q_b$')
+    ax.set_title(fr'$M={M}$ and $L={L}$')
+    ax.grid()
+    ax.plot(points_y, points_x, color=(1, 0, 0), label='Maxima', zorder=4)
 
 
 def trPlot(Metric, param=[(0, 0, 2)], r_0=5, sigma=-1, L=1, E=1.4, end=10, M=1, grad=None, debug=False):
@@ -296,7 +326,7 @@ def trPlot(Metric, param=[(0, 0, 2)], r_0=5, sigma=-1, L=1, E=1.4, end=10, M=1, 
     tau_list = np.linspace(tau_span[0], tau_span[1], 10*end)  # Time array for simulation
 
     Res=[]  # To store results from each calculation
-        
+
     # Loop through the parameters and solve the differential equations for each
     for i in range(len(param)):
         Metric.set_parameters(param[i])  # Set the parameters for the Metric object
@@ -348,11 +378,11 @@ def trPlot(Metric, param=[(0, 0, 2)], r_0=5, sigma=-1, L=1, E=1.4, end=10, M=1, 
     Radius.set_xlabel('t')
     Radius.set_ylabel('r [$R_s$]') 
 
-    Beta.set_title(rf'$\beta$(t) of particle') 
+    Beta.set_title(rf'$\Phi$(t) of particle') 
     Beta.set_xlabel('t')
-    Beta.set_ylabel(rf'$\beta$') 
+    Beta.set_ylabel(rf'$\Phi$') 
 
-    RadiusBeta.set_title(rf'$\beta$(r) of particle') 
+    RadiusBeta.set_title(rf'$\Phi$(r) of particle') 
     RadiusBeta.set_xlabel('r [$R_s$]')
     RadiusBeta.set_ylabel(rf'$\beta$')     
 
@@ -385,3 +415,123 @@ def trPlot(Metric, param=[(0, 0, 2)], r_0=5, sigma=-1, L=1, E=1.4, end=10, M=1, 
     plt.tight_layout()  # Adjust the layout to avoid overlapping
     plt.show()  # Display the plot
 
+
+def plotSourcePoints(ax, metric, source=True, r_0=20, D_ls=100,D_ol=100, end=300,blue=0, skizze=True):
+    import sympy as sp
+    r = sp.Symbol("r", nonnegative=True)
+    L=np.sqrt(float(metric.h.subs(r,r_0)))
+    E=np.sqrt(float(metric.f.subs(r,r_0)))
+
+    tau_span = [0, end]
+    tau_list = np.linspace(tau_span[0], tau_span[1], 200) 
+    sp, sn, f = metric.solve_DAE(tau_list, tau_span, D_ol, sigma =0, L = L, E = E, phi_0=-0.5*np.pi)
+
+    b=20
+    beta=(np.pi/2-abs(np.arctan(   (sn[1][b] * np.sin(sn[2][b])+D_ol) / (sn[1][b] * np.cos(sn[2][b])))))*abs(np.arctan(   (sn[1][b] * np.sin(sn[2][b])+D_ol) / (sn[1][b] * np.cos(sn[2][b])))) / (np.arctan(   (sn[1][b] * np.sin(sn[2][b])+D_ol) / (sn[1][b] * np.cos(sn[2][b]))))
+    
+    if beta != 0: D_os=D_ls/np.sin(beta)*np.sin( np.pi - beta- np.arcsin(beta* D_ol / D_ls))
+    else: D_os= D_ls+D_ol
+
+    differenzen=np.abs(sn[1][30:] - D_ls)
+    ind=np.argmin(differenzen)+30
+    ax.scatter(sn[1][ind] * np.cos(sn[2][ind]), sn[1][ind] * np.sin(sn[2][ind])+D_ol ,zorder=6, color=(0,0,blue), label=f'S with $Q_b={blue}$')
+    ax.plot(sn[1][:ind] * np.cos(sn[2][:ind] ), sn[1][:ind]  * np.sin(sn[2][:ind] )+D_ol, color=(0,0,blue))
+    ax.set_aspect('equal', adjustable='datalim')
+
+    if source:
+        ax.scatter((D_os *np.sin(beta)), (D_os *np.cos(beta)), zorder=5, label='I', color='gray')
+        ax.plot((0, D_os *np.sin(beta)), (0,D_os *np.cos(beta)), zorder=-1, color='gray', linestyle='--')
+
+    if skizze:
+        ax.plot((0,sn[1][ind] * np.cos(sn[2][ind])), (0, sn[1][ind]  * np.sin(sn[2][ind])+D_ol), linestyle='--', color='gray')
+        ax.plot((0,sn[1][ind] * np.cos(sn[2][ind])), (0, sn[1][ind]  * np.sin(sn[2][ind])+D_ol), linestyle='--', color='gray')
+
+        ax.plot((0, 0), (0, D_ol), zorder=-1, color='green', linestyle='--')
+
+        winkel=np.linspace(np.pi/2 , np.pi/2 - beta)
+        R=D_ol/3
+        ax.plot(R*np.cos(winkel), R*np.sin(winkel), color='gray')
+
+        winkel=np.linspace(np.arctan((sn[1][ind]  * np.sin(sn[2][ind])+D_ol)/(sn[1][ind] * np.cos(sn[2][ind]))), np.pi/2 - beta)
+        R=D_ol/2
+        ax.plot(R*np.cos(winkel), R*np.sin(winkel), color='gray')
+    ax.autoscale(enable=True, axis='both', tight=False)
+
+def PlotLightDefl(metric, grad=3, D_ls=60, D_ol=100,r_0=3.6):
+    fig, ax = plt.subplots(1, 1, figsize=(25, 8))  
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+        metric.set_parameters((Q_b[i],0,2))
+        plotSourcePoints(ax, metric, r_0=r_0, blue=Q_b[i], D_ls=D_ls, D_ol=D_ol, source= i==0, skizze=False)
+
+    ax.scatter((0), (D_ol), zorder=5, c='black')
+    ax.scatter(0,0, c='red', label='Observer')
+    ax.set_aspect('equal', adjustable='box')
+    ax.legend()
+
+    plt.show()
+
+def Light_deflection(ax, metric, grad=20 ,r_0=3.6, beta=0, D_ls=100,D_ol=100):
+    Light_def=[]
+
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+       metric.set_parameters((Q_b[i],0,2))
+       Light_def.append(metric.Light_deflection(r_0 )*180/np.pi)
+
+    ax.plot(Q_b, Light_def, label=fr'$\hat\alpha(r_{{0}}={r_0})$')
+    ax.set_xlabel(fr'$Q_b$')
+    ax.set_ylabel(fr' angle [°]')
+
+def Theta(ax, metric, grad=20 ,r_0=3.6, beta=0, D_ls=100,D_ol=100):
+    Theta_arra=[]
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+       metric.set_parameters((Q_b[i],0,2))
+       Theta_arra.append(metric.Theta(r_0, D_ol)*180/np.pi)
+
+    ax.plot(Q_b, Theta_arra, label=fr'$\vartheta(r_{{0}}={r_0})$')
+    ax.set_xlabel(fr'$Q_b$')
+    ax.set_ylabel(fr' angle [°]')
+
+def Beta(ax, metric, grad=20 ,r_0=3.6, beta=0, D_ls=100,D_ol=100):
+    Beta_arra=[]
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+       metric.set_parameters((Q_b[i],0,2))
+       Beta_arra.append(metric.Beta(r_0, D_ol, D_ls)*180/np.pi)
+
+    ax.plot(Q_b, Beta_arra, label=fr'$\beta(r_{{0}}={r_0})$')
+    ax.set_xlabel(fr'$Q_b$')
+    ax.set_ylabel(fr' angle [°]')
+
+def PlotTimeDelay(ax, metric, grad=20, D_ls=100,D_ol=100,r_0=3.6, beta=0):
+    D_os= D_ol + D_ls
+    
+    TimeDelay_arry=[]
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+       metric.set_parameters((Q_b[i],0,2))
+       TimeDelay_arry.append(metric.Time_Delay(r_0,D_ls,D_ol, beta))
+    
+    r_ls=np.sqrt(D_ls**2+D_os**2*np.tan(beta)**2)
+    ax.plot(Q_b, TimeDelay_arry, label=fr'$\tau(r_{{0}}={r_0}; \, r_{{ls}}={r_ls}; \, r_{{ol}}={D_ol} )$')
+    ax.set_xlabel(fr'$Q_b$')
+    ax.set_ylabel(fr'$\tau$ [s]')
+
+def Perihelion_shift(metric, L=3.6, E=0.957, grad=10):
+    metric.set_parameters((1,0,2))
+
+    metric.Perihelion_shift(E=E, L=L)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))  
+    arra=[]
+    Q_b=np.linspace(0,1,grad)
+    for i in range(len(Q_b)):
+        metric.set_parameters((Q_b[i],0,2))
+        arra.append(metric.Perihelion_shift(E=E, L=L))
+    if grad<11: ax.scatter(Q_b, arra)
+    ax.plot(Q_b, arra, label=fr'$\vartheta(\Delta \Phi)$')
+    ax.set_xlabel(fr'$Q_b$')
+    ax.set_ylabel(fr' angle ')
+    ax.grid()
